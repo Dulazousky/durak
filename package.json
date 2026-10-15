@@ -1,0 +1,10 @@
+{
+  "name": "durak",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Durak online: the Russian card game, played with friends by link",
+  "scripts": {
+    "test": "node tests/durak.test.js",
+    "start": "npx --yes serve ."
+  }
+}

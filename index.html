@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Дурак онлайн</title>
+  <meta name="description" content="Подкидной и переводной дурак с друзьями по ссылке">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%83%8F%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Home: name, create or join -->
+  <section id="home" class="screen" hidden>
+    <div class="panel home-panel">
+      <h1 class="logo">Дурак <span>онлайн</span></h1>
+      <p class="sub">Играйте с друзьями по ссылке. Без регистрации.</p>
+      <label class="field">
+        <span>Ваше имя</span>
+        <input id="nameInput" maxlength="16" autocomplete="nickname" placeholder="Например, Саша">
+      </label>
+      <div id="inviteBox" class="invite" hidden>
+        <p>Вас пригласили в комнату <b id="inviteCode"></b></p>
+        <button id="acceptInviteBtn" class="btn primary big">Войти в игру</button>
+      </div>
+      <div id="homeActions">
+        <button id="createBtn" class="btn primary big">Создать комнату</button>
+        <div class="or"><span>или</span></div>
+        <form id="joinForm" class="join-row">
+          <input id="codeInput" maxlength="5" placeholder="Код комнаты" autocomplete="off" spellcheck="false">
+          <button class="btn" type="submit">Войти</button>
+        </form>
+      </div>
+      <p id="homeError" class="error" hidden></p>
+    </div>
+  </section>
+
+  <!-- Connecting / errors -->
+  <section id="connecting" class="screen" hidden>
+    <div class="panel center">
+      <div class="spinner" id="connSpinner"></div>
+      <p id="connText">Подключаемся…</p>
+      <div class="row">
+        <button id="connRetryBtn" class="btn" hidden>Ещё раз</button>
+        <button id="connBackBtn" class="btn ghost">На главную</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Lobby -->
+  <section id="lobby" class="screen" hidden>
+    <div class="panel lobby-panel">
+      <div class="lobby-head">
+        <div>
+          <p class="muted small">Комната</p>
+          <p class="code" id="lobbyCode"></p>
+        </div>
+        <button class="btn ghost small" data-action="leave">Выйти</button>
+      </div>
+      <div class="share">
+        <input id="shareLink" readonly>
+        <button id="copyBtn" class="btn">Копировать</button>
+      </div>
+      <p class="muted small">Отправьте ссылку друзьям. Игроков: от 2 до 6.</p>
+      <ul id="seatList" class="seats"></ul>
+      <div id="hostControls" class="host-controls">
+        <button id="addBotBtn" class="btn">+ Добавить бота</button>
+        <label class="toggle">
+          <input type="checkbox" id="transferToggle">
+          <span>Переводной</span>
+        </label>
+      </div>
+      <p id="modeNote" class="muted small"></p>
+      <button id="startBtn" class="btn primary big">Начать игру</button>
+      <p id="lobbyWait" class="muted center-text">Ждём, пока хост начнёт игру…</p>
+    </div>
+  </section>
+
+  <!-- Game -->
+  <section id="game" class="screen game" hidden>
+    <header class="topbar">
+      <button class="btn ghost small" data-action="leave">Выйти</button>
+      <span class="room-tag">Комната <b id="gameCode"></b> · <span id="modeTag"></span></span>
+      <button id="chatToggle" class="btn ghost small">Чат <span id="chatBadge" class="badge" hidden></span></button>
+    </header>
+    <div class="board">
+      <div id="opponents" class="opponents"></div>
+      <div class="middle">
+        <div class="pile-area">
+          <div id="deck" class="deck"></div>
+          <div id="discard" class="discard"></div>
+        </div>
+        <div id="table" class="table"></div>
+      </div>
+      <div class="me">
+        <div class="me-bar">
+          <p id="status" class="status"></p>
+          <div id="actions" class="actions"></div>
+        </div>
+        <div id="hand" class="hand"></div>
+      </div>
+    </div>
+    <aside id="chat" class="chat">
+      <div class="chat-head">
+        <b>Чат и ходы</b>
+        <button id="chatClose" class="btn ghost small">✕</button>
+      </div>
+      <ol id="chatLog" class="chat-log"></ol>
+      <form id="chatForm" class="chat-form">
+        <input id="chatInput" maxlength="200" placeholder="Написать…" autocomplete="off">
+        <button class="btn small" type="submit">➤</button>
+      </form>
+    </aside>
+    <div id="over" class="over" hidden>
+      <div class="panel center">
+        <p id="overTitle" class="over-title"></p>
+        <p id="overSub" class="muted"></p>
+        <table id="scoreTable" class="scores"></table>
+        <div id="overHost" class="row">
+          <button id="rematchBtn" class="btn primary">Ещё партию</button>
+          <button id="toLobbyBtn" class="btn">В лобби</button>
+        </div>
+        <p id="overWait" class="muted small">Ждём, пока хост начнёт новую партию…</p>
+        <button id="overHideBtn" class="btn ghost small">Посмотреть стол</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="vendor/peerjs.min.js"></script>
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
