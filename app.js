@@ -16,22 +16,30 @@
 
   // STUN finds each browser's public address; TURN relays the traffic when
   // two networks can't reach each other directly (common on mobile data).
-  // The TURN entry is PeerJS's own default, kept when adding more STUN servers.
-  const ICE = {
-    iceServers: [
-      { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-      { urls: 'stun:stun.cloudflare.com:3478' },
-      { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
-    ],
-    sdpSemantics: 'unified-plan',
-  };
+  // PeerJS's own free TURN servers are often down, so the site can hand out
+  // credentials for its own relay from api/ice (see README); the shared ones
+  // stay as a fallback.
+  const STUN = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ];
+  const PEERJS_TURN = { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' };
+  let ownRelay = []; // filled from api/ice when the site has a relay configured
+
+  const iceReady = fetch('api/ice', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => { if (j && Array.isArray(j.iceServers)) ownRelay = j.iceServers.filter((x) => x && x.urls); })
+    .catch(() => { /* static hosting without the function: shared relay only */ });
+  // Don't hold up joining for long if api/ice is slow.
+  const iceSettled = () => Promise.race([iceReady, new Promise((r) => setTimeout(r, 3000))]);
 
   function peerOptions() {
+    const config = { iceServers: STUN.concat(ownRelay, [PEERJS_TURN]), sdpSemantics: 'unified-plan' };
     // ?peer=host:port points at a self-hosted PeerJS server (used for local testing).
     const p = params.get('peer');
-    if (!p) return { debug: 1, config: ICE };
+    if (!p) return { debug: 1, config };
     const [host, port] = p.split(':');
-    return { host, port: Number(port) || 9000, path: '/', secure: location.protocol === 'https:', debug: 1, config: ICE };
+    return { host, port: Number(port) || 9000, path: '/', secure: location.protocol === 'https:', debug: 1, config };
   }
 
   const myToken = store.get('durak-token') || randomId(16);
@@ -424,18 +432,21 @@
     if (conn) conn.close();
     const c = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
     conn = c;
-    // A connection that never opens (blocked by NAT) is retried.
+    // A connection that never opens (blocked by NAT) is retried. A relayed
+    // connection can take a while to set up, so be patient.
     const guard = setTimeout(() => {
       if (c === conn && !c.open) {
-        if (!joinedOnce) showConnecting('conn.cantReach', true);
+        if (!joinedOnce) showConnecting(ownRelay.length ? 'conn.cantReach' : 'conn.iceFailed', true);
         retryLater(500);
       }
-    }, 20000);
+    }, 30000);
     c.on('iceStateChanged', (state) => {
       if (c !== conn) return;
+      const was = lastIce;
       lastIce = state;
-      // The two networks couldn't find a way to each other, even via the relay.
-      if (state === 'failed' && !joinedOnce) showConnecting('conn.iceFailed', true);
+      // checking -> disconnected/failed before ever opening: the two networks
+      // couldn't find a way to each other, not even through a relay.
+      if (!c.open && !joinedOnce && (state === 'failed' || (state === 'disconnected' && was === 'checking'))) showConnecting('conn.iceFailed', true);
       else refreshDiag();
     });
     c.on('open', () => {
@@ -491,7 +502,8 @@
   function refreshDiag() {
     if (!connKey) return;
     const server = peer && peer.open ? '✓' : '…';
-    $('#connDetail').textContent = t('conn.diag', { server, link: lastIce || '…' }) + (lastError ? ' · ' + t('conn.error', { err: lastError }) : '');
+    $('#connDetail').textContent = t('conn.diag', { server, link: lastIce || '…', relay: ownRelay.length ? t('conn.relayOwn') : t('conn.relayShared') }) +
+      (lastError ? ' · ' + t('conn.error', { err: lastError }) : '');
   }
 
   function setNetStatus(key) {
@@ -722,6 +734,7 @@
       const type = chosenGame();
       store.set('durak-game', type);
       const c = randomId(5, CODE_CHARS);
+      await iceSettled();
       await grabHostLock(c);
       hostRoom(c, null, type);
     };
@@ -803,6 +816,7 @@
   }
 
   async function enterRoom(c) {
+    await iceSettled();
     const saved = store.get('durak-host-' + c);
     if (saved) {
       let r = null;
