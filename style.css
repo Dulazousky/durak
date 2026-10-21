@@ -339,7 +339,6 @@ body.chat-open .chat { transform: none; }
 .scores th, .scores td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; }
 .scores th { font-size: 12px; color: var(--panel-muted); font-weight: 500; }
 .scores td:last-child, .scores th:last-child { text-align: right; }
-#overHideBtn { margin-top: 12px; }
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
@@ -377,6 +376,9 @@ body.chat-open .chat { transform: none; }
 .seat-extra { display: inline-flex; gap: 6px; align-items: center; margin-left: 6px; }
 .seat-extra .btn { padding: 3px 8px; font-size: 12px; }
 #gameSettings { margin: 10px 0; }
+.net-line { margin: 0 0 10px; font-weight: 500; }
+.net-line.ok { color: #1f7a45; }
+.net-line.bad { color: var(--danger); }
 .game-settings { display: grid; gap: 6px; }
 .game-settings p, #gameSettings > p { margin: 0; }
 

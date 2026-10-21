@@ -325,7 +325,7 @@
     peer.on('connection', (c) => {
       c.on('open', () => conns.add(c));
       c.on('data', (msg) => {
-        if (!msg || typeof msg !== 'object') return;
+        if (!room || !msg || typeof msg !== 'object') return;
         if (msg.t === 'hello') {
           if (typeof msg.token !== 'string' || !msg.token || msg.token.startsWith('bot-') || msg.token === room.host) return c.close();
           handle(msg.token, msg, c);
@@ -333,6 +333,7 @@
       });
       c.on('close', () => {
         conns.delete(c);
+        if (!room) return;
         if (c.token && ![...conns].some((o) => o.token === c.token)) dropToken(c.token);
       });
       c.on('error', () => {});
@@ -381,7 +382,7 @@
     peer = new Peer(peerOptions());
     // 'open' also fires after re-registering with the server; a working link
     // to the host doesn't need replacing then.
-    peer.on('open', () => { if (!(conn && conn.open)) connectToHost(); });
+    peer.on('open', () => { refreshDiag(); if (!(conn && conn.open)) connectToHost(); });
     peer.on('disconnected', () => setTimeout(reconnectPeer, 1500));
     peer.on('error', (e) => {
       lastError = e.type;
@@ -430,6 +431,13 @@
         retryLater(500);
       }
     }, 20000);
+    c.on('iceStateChanged', (state) => {
+      if (c !== conn) return;
+      lastIce = state;
+      // The two networks couldn't find a way to each other, even via the relay.
+      if (state === 'failed' && !joinedOnce) showConnecting('conn.iceFailed', true);
+      else refreshDiag();
+    });
     c.on('open', () => {
       clearTimeout(guard);
       retries = 0;
@@ -449,7 +457,7 @@
       setNetStatus('net.lost');
       retryLater(2000);
     });
-    c.on('error', () => {});
+    c.on('error', (e) => { if (c === conn) { lastError = (e && e.type) || 'connection'; refreshDiag(); } });
   }
 
   // ---- sending --------------------------------------------------------
@@ -468,13 +476,22 @@
 
   let connKey = null;
   let lastError = '';
+  let lastIce = '';
   function showConnecting(key, failed) {
     connKey = { key, failed };
     show('connecting');
     $('#connText').textContent = t(key, { code });
-    $('#connDetail').textContent = failed && lastError ? t('conn.detail', { err: lastError }) : '';
+    refreshDiag();
     $('#connSpinner').hidden = !!failed;
     $('#connRetryBtn').hidden = !failed;
+  }
+
+  // One line under the spinner saying how far the connection got, so a stuck
+  // player can tell whether it's the server, the room or the direct link.
+  function refreshDiag() {
+    if (!connKey) return;
+    const server = peer && peer.open ? '✓' : '…';
+    $('#connDetail').textContent = t('conn.diag', { server, link: lastIce || '…' }) + (lastError ? ' · ' + t('conn.error', { err: lastError }) : '');
   }
 
   function setNetStatus(key) {
@@ -496,6 +513,7 @@
     view = null;
     connKey = null;
     lastError = '';
+    lastIce = '';
     clearTimeout(hostRetryTimer);
     joinedOnce = false;
     retries = 0;
@@ -513,11 +531,16 @@
       if (!confirm(t('confirmClose'))) return;
       for (const c of conns) { try { c.send({ t: 'kicked' }); } catch (e) { /* ignore */ } }
       store.del('durak-host-' + code);
-      setTimeout(() => goHome(), 200);
-    } else {
-      if (conn && conn.open) conn.send({ t: 'leave' });
-      setTimeout(() => goHome(), 150);
+    } else if (conn && conn.open) {
+      conn.send({ t: 'leave' });
     }
+    // Go home right away, but give the goodbye a moment to go out before the
+    // old connection closes. (Waiting before going home let a link opened in
+    // that moment be thrown back to the home screen.)
+    const old = peer;
+    peer = null;
+    goHome();
+    if (old) setTimeout(() => old.destroy(), 400);
   }
 
   function shareLink() {
@@ -583,8 +606,14 @@
     $('#lobbyWait').hidden = v.isHost;
     $('#startBtn').disabled = v.seats.length < v.min;
     $('#gameSettings').replaceChildren(G.settings(v, ctx));
-    $('#lobbyNet').hidden = !netStatus;
-    $('#lobbyNet').textContent = netStatus ? t(netStatus) : '';
+    // The host sees whether friends can join yet; guests only see trouble.
+    const open = role === 'host' && peer && peer.open;
+    const line = role === 'host'
+      ? (open ? t('net.roomOpen') : t(netStatus || 'net.roomOpening') + (lastError ? ' · ' + t('conn.error', { err: lastError }) : ''))
+      : (netStatus ? t(netStatus) : '');
+    $('#lobbyNet').hidden = !line;
+    $('#lobbyNet').textContent = line;
+    $('#lobbyNet').className = 'small net-line' + (open ? ' ok' : ' bad');
   }
 
   function renderGame(v) {
