@@ -432,6 +432,7 @@ body.chat-open .chat { transform: none; }
 .chess-main .piece { font-size: calc(min(100vw - 24px, 100dvh - 210px, 620px) / 8 * .78); }
 .piece.white { color: #fff; text-shadow: 0 0 2px #000, 0 0 1px #000, 0 1px 2px rgba(0, 0, 0, .6); }
 .piece.black { color: #17171b; text-shadow: 0 0 1px rgba(255, 255, 255, .5), 0 1px 2px rgba(0, 0, 0, .4); }
+.piece.ghost { position: absolute; inset: 0; display: grid; place-items: center; z-index: 0; pointer-events: none; }
 .coord { position: absolute; font-size: 10px; font-weight: 700; opacity: .75; pointer-events: none; }
 .coord.rank { top: 2px; left: 3px; }
 .coord.file { bottom: 1px; right: 3px; }

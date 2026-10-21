@@ -14,6 +14,7 @@
   let selected = -1;
   let promo = null; // {from, to} waiting for a piece choice
   let last = null;
+  let shown = null; // {plies, board} of the position drawn last, to animate the next move
 
   function act(a) {
     selected = -1;
@@ -61,6 +62,44 @@
     return t('chess.st.theirMove', { name: g.names[1 - v.you] });
   }
 
+  const reducedMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const EASE = { duration: 280, easing: 'cubic-bezier(.2, .7, .3, 1)' };
+
+  // prev/next: the board before and after the move; m: {from, to}.
+  function animateMove(cells, prev, next, m) {
+    if (reducedMotion() || !Element.prototype.animate) return;
+    const slide = (from, to) => {
+      const piece = cells[to] && cells[to].querySelector('.piece');
+      if (!piece || !cells[from]) return;
+      const a = cells[from].getBoundingClientRect();
+      const b = cells[to].getBoundingClientRect();
+      piece.style.zIndex = 5; // above the other squares while it travels
+      piece.animate([{ transform: 'translate(' + (a.left - b.left) + 'px, ' + (a.top - b.top) + 'px)' }, { transform: 'none' }], EASE)
+        .onfinish = () => { piece.style.zIndex = ''; };
+    };
+    slide(m.from, m.to);
+
+    // Castling moves the rook too.
+    let rookFrom = -1;
+    const mover = prev[m.from];
+    if (mover && mover.toLowerCase() === 'k' && Math.abs((m.to & 7) - (m.from & 7)) === 2) {
+      const home = m.from & 56;
+      const kingside = (m.to & 7) === 6;
+      rookFrom = home + (kingside ? 7 : 0);
+      slide(rookFrom, home + (kingside ? 5 : 3));
+    }
+
+    // Captured pieces (including en passant) shrink and fade where they stood.
+    for (let sq = 0; sq < 64; sq++) {
+      const was = prev[sq];
+      if (!was || sq === m.from || sq === rookFrom || next[sq] === was) continue;
+      if (sq !== m.to && next[sq]) continue;
+      const ghost = h('span', { class: 'piece ghost ' + (C.colorOf(was) === 'w' ? 'white' : 'black'), text: glyph(was), 'aria-hidden': 'true' });
+      cells[sq].append(ghost);
+      ghost.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(.5)' }], EASE).onfinish = () => ghost.remove();
+    }
+  }
+
   function render(stage, v, ctx) {
     last = { v, ctx };
     const g = v.game;
@@ -78,6 +117,7 @@
 
     const board = el('board');
     board.replaceChildren();
+    const cells = [];
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
         const r = flip ? row : 7 - row;
@@ -95,8 +135,14 @@
         if (col === 0) sq.append(h('span', { class: 'coord rank', text: String(r + 1) }));
         if (row === 7) sq.append(h('span', { class: 'coord file', text: C.FILES[f] }));
         board.append(sq);
+        cells[s] = sq;
       }
     }
+
+    // Slide the piece that just moved; a redraw without a new move doesn't animate.
+    const plies = g.history.length;
+    if (shown && plies === shown.plies + 1 && g.last) animateMove(cells, shown.board, g.pos.board, g.last);
+    shown = { plies, board: g.pos.board.slice() };
 
     // Promotion picker.
     const picker = el('promo');
@@ -192,7 +238,7 @@
         h('ol', { class: 'cmoves', 'data-el': 'moves' })));
     },
     render,
-    reset() { selected = -1; promo = null; },
+    reset() { selected = -1; promo = null; shown = null; },
     escape() { if (selected < 0 && !promo) return false; selected = -1; promo = null; return true; },
     overText,
     logText,
