@@ -84,8 +84,7 @@
     'log.resign': '{name} сдаётся',
 
     'net.reconnecting': 'Нет связи с сервером, переподключаемся…',
-    'net.claiming': 'Занимаем комнату…',
-    'net.codeTaken': 'Код комнаты занят. Создайте новую комнату.',
+    'net.claiming': 'Сервер ещё держит код комнаты, ждём… Игра продолжается.',
     'net.noWebrtcHost': 'Браузер не поддерживает WebRTC — можно играть только с ботами.',
     'net.hostGone': 'Хост отключился. Ждём его возвращения…',
     'net.lost': 'Связь с хостом потеряна, переподключаемся…',
@@ -94,7 +93,9 @@
     'conn.notFound': 'Комната {code} не найдена. Проверьте код или попросите хоста открыть игру.',
     'conn.noServer': 'Нет связи с сервером…',
     'conn.noWebrtc': 'Этот браузер не поддерживает WebRTC. Попробуйте Chrome, Firefox или Safari.',
-    'conn.cantReach': 'Не получается соединиться с хостом. Пробуем ещё раз…',
+    'conn.cantReach': 'Не получается соединиться с хостом. Пробуем ещё раз… Если не выходит, попробуйте другую сеть (например, Wi-Fi вместо мобильного интернета).',
+    'conn.waitingHost': 'Ищем комнату {code}… Хост должен держать игру открытой.',
+    'conn.detail': 'Код ошибки: {err}',
 
     'err.needPlayers': 'Нужно хотя бы {n} игрока',
     'err.over': 'Игра окончена',
@@ -291,8 +292,7 @@
     'log.resign': '{name} resigns',
 
     'net.reconnecting': 'Lost the server, reconnecting…',
-    'net.claiming': 'Claiming the room…',
-    'net.codeTaken': 'This room code is taken. Create a new room.',
+    'net.claiming': 'The server is still holding the room code, waiting… The game goes on.',
     'net.noWebrtcHost': "This browser doesn't support WebRTC — you can only play with bots.",
     'net.hostGone': 'The host disconnected. Waiting for them to come back…',
     'net.lost': 'Lost the host, reconnecting…',
@@ -301,7 +301,9 @@
     'conn.notFound': "Room {code} wasn't found. Check the code or ask the host to open the game.",
     'conn.noServer': "Can't reach the server…",
     'conn.noWebrtc': "This browser doesn't support WebRTC. Try Chrome, Firefox or Safari.",
-    'conn.cantReach': "Can't connect to the host. Trying again…",
+    'conn.cantReach': "Can't connect to the host. Trying again… If it keeps failing, try another network (e.g. Wi-Fi instead of mobile data).",
+    'conn.waitingHost': 'Looking for room {code}… The host must keep the game open.',
+    'conn.detail': 'Error code: {err}',
 
     'err.needPlayers': 'You need at least {n} players',
     'err.over': 'The game is over',

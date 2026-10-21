@@ -14,12 +14,24 @@
   const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const GAME_IDS = ['durak', 'battleship', 'chess'];
 
+  // STUN finds each browser's public address; TURN relays the traffic when
+  // two networks can't reach each other directly (common on mobile data).
+  // The TURN entry is PeerJS's own default, kept when adding more STUN servers.
+  const ICE = {
+    iceServers: [
+      { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
+    ],
+    sdpSemantics: 'unified-plan',
+  };
+
   function peerOptions() {
     // ?peer=host:port points at a self-hosted PeerJS server (used for local testing).
     const p = params.get('peer');
-    if (!p) return { debug: 1 };
+    if (!p) return { debug: 1, config: ICE };
     const [host, port] = p.split(':');
-    return { host, port: Number(port) || 9000, path: '/', secure: location.protocol === 'https:', debug: 1 };
+    return { host, port: Number(port) || 9000, path: '/', secure: location.protocol === 'https:', debug: 1, config: ICE };
   }
 
   const myToken = store.get('durak-token') || randomId(16);
@@ -287,7 +299,8 @@
     room.seats[0].name = myName();
     location.hash = c;
     broadcast();
-    openHostPeer(0);
+    hostRetry = 0;
+    openHostPeer();
   }
 
   // Re-register with the signalling server after a drop. Connections that are
@@ -298,11 +311,17 @@
   }
 
   const isNetError = (e) => ['network', 'server-error', 'socket-error', 'socket-closed'].includes(e.type);
+  let hostRetry = 0;
 
-  function openHostPeer(attempt) {
+  // The host registers the room code with the PeerJS server. When that link
+  // drops (screen locked, tab in the background, Wi-Fi blip), the guests'
+  // direct connections keep working, so we only re-register; tearing the peer
+  // down would cut everyone off. The server can keep the old registration for
+  // up to a minute, so "code taken" means wait and retry, never give up.
+  function openHostPeer() {
     if (peer) peer.destroy();
     peer = new Peer(PEER_PREFIX + code, peerOptions());
-    peer.on('open', () => { setNetStatus(''); });
+    peer.on('open', () => { hostRetry = 0; setNetStatus(''); });
     peer.on('connection', (c) => {
       c.on('open', () => conns.add(c));
       c.on('data', (msg) => {
@@ -318,26 +337,37 @@
       });
       c.on('error', () => {});
     });
+    const me = peer;
     peer.on('disconnected', () => {
-      setNetStatus('net.reconnecting');
-      setTimeout(reconnectPeer, 1500);
+      if (me !== peer || me.destroyed) return;
+      if (netStatus !== 'net.claiming') setNetStatus('net.reconnecting');
+      retryHostPeer();
     });
     peer.on('error', (e) => {
+      if (me !== peer) return;
+      lastError = e.type;
       if (e.type === 'unavailable-id') {
-        // After a reload the server may still hold our old id for a moment.
-        if (attempt < 8) {
-          setNetStatus('net.claiming');
-          setTimeout(() => openHostPeer(attempt + 1), 2500);
-        } else {
-          setNetStatus('net.codeTaken');
-        }
+        setNetStatus('net.claiming');
+        retryHostPeer();
       } else if (isNetError(e)) {
         setNetStatus('net.reconnecting');
-        setTimeout(() => openHostPeer(attempt), 4000);
+        retryHostPeer();
       } else if (e.type === 'browser-incompatible') {
         setNetStatus('net.noWebrtcHost');
       }
     });
+  }
+
+  let hostRetryTimer = 0;
+  function retryHostPeer() {
+    clearTimeout(hostRetryTimer);
+    const delay = Math.min(2000 + hostRetry * 1000, 8000);
+    hostRetry++;
+    hostRetryTimer = setTimeout(() => {
+      if (role !== 'host') return;
+      if (peer && !peer.destroyed) reconnectPeer();
+      else openHostPeer();
+    }, delay);
   }
 
   // ---- guest ----------------------------------------------------------
@@ -349,21 +379,31 @@
     showConnecting('conn.joining');
     if (peer) peer.destroy();
     peer = new Peer(peerOptions());
-    peer.on('open', connectToHost);
+    // 'open' also fires after re-registering with the server; a working link
+    // to the host doesn't need replacing then.
+    peer.on('open', () => { if (!(conn && conn.open)) connectToHost(); });
     peer.on('disconnected', () => setTimeout(reconnectPeer, 1500));
     peer.on('error', (e) => {
+      lastError = e.type;
       if (e.type === 'peer-unavailable') {
         retries++;
-        if (joinedOnce || retries < 4) {
+        // The host may be re-registering after a hiccup, so give it ~45 s.
+        if (joinedOnce || retries < 15) {
+          if (!joinedOnce && retries > 2) showConnecting('conn.waitingHost');
           if (joinedOnce) setNetStatus('net.hostGone');
           retryLater(3000);
         } else {
           showConnecting('conn.notFound', true);
         }
       } else if (isNetError(e)) {
-        if (!joinedOnce) showConnecting('conn.noServer', true);
-        else setNetStatus('net.reconnecting');
-        retryLater(4000, true);
+        // Once connected, the game runs over the direct link to the host; the
+        // server is only needed to find it. Keep that link and quietly retry.
+        if (conn && conn.open) setTimeout(reconnectPeer, 3000);
+        else {
+          if (!joinedOnce) showConnecting('conn.noServer', true);
+          else setNetStatus('net.reconnecting');
+          retryLater(4000, true);
+        }
       } else if (e.type === 'browser-incompatible') {
         showConnecting('conn.noWebrtc', true);
       }
@@ -389,7 +429,7 @@
         if (!joinedOnce) showConnecting('conn.cantReach', true);
         retryLater(500);
       }
-    }, 12000);
+    }, 20000);
     c.on('open', () => {
       clearTimeout(guard);
       retries = 0;
@@ -427,10 +467,12 @@
   }
 
   let connKey = null;
+  let lastError = '';
   function showConnecting(key, failed) {
     connKey = { key, failed };
     show('connecting');
     $('#connText').textContent = t(key, { code });
+    $('#connDetail').textContent = failed && lastError ? t('conn.detail', { err: lastError }) : '';
     $('#connSpinner').hidden = !!failed;
     $('#connRetryBtn').hidden = !failed;
   }
@@ -453,6 +495,8 @@
     room = null;
     view = null;
     connKey = null;
+    lastError = '';
+    clearTimeout(hostRetryTimer);
     joinedOnce = false;
     retries = 0;
     history.replaceState(null, '', location.pathname + location.search);
@@ -696,6 +740,16 @@
       if (!view || !view.game || e.target.closest('input, textarea')) return;
       const G = GAMES[view.gameType];
       if ((e.key === 'Escape' && G.escape()) || (G.key && G.key(e))) render(view);
+    });
+    // Phones freeze background tabs; reconnect as soon as we're visible again.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      if (role === 'host') {
+        if (!peer || peer.destroyed) openHostPeer();
+        else if (peer.disconnected) reconnectPeer();
+      } else if (role === 'guest' && joinedOnce && !(conn && conn.open)) {
+        retryLater(0);
+      }
     });
     window.addEventListener('hashchange', () => {
       const c = cleanCode(location.hash.slice(1));
