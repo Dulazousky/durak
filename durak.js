@@ -156,15 +156,15 @@
     hand.splice(hand.indexOf(card), 1);
   }
 
-  // Apply player i's action. Returns an error message, or null on success.
+  // Apply player i's action. Returns an error code (see i18n.js, err.*), or null on success.
   function apply(st, i, a) {
-    if (st.over) return 'Игра окончена';
-    if (!a || typeof a.type !== 'string') return 'Непонятный ход';
+    if (st.over) return 'over';
+    if (!a || typeof a.type !== 'string') return 'bad';
     const m = legalMoves(st, i);
     const p = st.players[i];
     switch (a.type) {
       case 'attack':
-        if (!m.attack.includes(a.card)) return 'Эту карту сейчас нельзя положить';
+        if (!m.attack.includes(a.card)) return 'cantPlay';
         remove(p.hand, a.card);
         st.table.push({ a: a.card, d: null, by: i });
         if (!st.taking) resetPasses(st);
@@ -172,7 +172,7 @@
         break;
       case 'defend': {
         const targets = m.defend[a.card];
-        if (!targets || !targets.includes(a.target)) return 'Этой картой не побить';
+        if (!targets || !targets.includes(a.target)) return 'cantBeat';
         remove(p.hand, a.card);
         st.table[a.target].d = a.card;
         resetPasses(st);
@@ -180,7 +180,7 @@
         break;
       }
       case 'transfer':
-        if (!m.transfer.includes(a.card)) return 'Перевести нельзя';
+        if (!m.transfer.includes(a.card)) return 'cantTransfer';
         remove(p.hand, a.card);
         st.table.push({ a: a.card, d: null, by: i });
         st.attacker = i;
@@ -190,17 +190,17 @@
         log(st, { t: 'transfer', p: i, c: a.card, to: st.defender });
         break;
       case 'take':
-        if (!m.take) return 'Сейчас нечего брать';
+        if (!m.take) return 'cantTake';
         st.taking = true;
         resetPasses(st);
         log(st, { t: 'take', p: i });
         break;
       case 'pass':
-        if (!m.pass) return 'Сейчас нельзя пасовать';
+        if (!m.pass) return 'cantPass';
         st.passed[i] = true;
         break;
       default:
-        return 'Непонятный ход';
+        return 'bad';
     }
     maybeEndBout(st);
     return null;

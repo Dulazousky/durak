@@ -1,10 +1,10 @@
 {
-  "name": "durak",
-  "version": "1.0.0",
+  "name": "game-night",
+  "version": "2.0.0",
   "private": true,
-  "description": "Durak online: the Russian card game, played with friends by link",
+  "description": "Durak, Battleship and Chess with friends by link, in Russian and English",
   "scripts": {
-    "test": "node tests/durak.test.js",
+    "test": "node tests/durak.test.js && node tests/battleship.test.js && node tests/chess.test.js && node tests/i18n.test.js",
     "start": "npx --yes serve ."
   }
 }

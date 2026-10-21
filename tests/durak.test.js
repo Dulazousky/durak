@@ -1,7 +1,7 @@
 // Rules checks for Durak. Run with: node tests/durak.test.js
 'use strict';
 const assert = require('assert');
-const E = require('../engine.js');
+const E = require('../durak.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -87,7 +87,7 @@ test('attack, defend, throw-in by rank, bito, refill order', () => {
   });
   // Trump spades, no one holds one: seat 0 starts.
   assert.strictEqual(st.attacker, 0);
-  assert.strictEqual(E.apply(st, 1, { type: 'attack', card: '7D' }), 'Эту карту сейчас нельзя положить');
+  assert.strictEqual(E.apply(st, 1, { type: 'attack', card: '7D' }), 'cantPlay');
   assert.strictEqual(E.apply(st, 0, { type: 'attack', card: '6H' }), null);
   assert.ok(E.apply(st, 1, { type: 'defend', target: 0, card: '6D' }));
   assert.strictEqual(E.apply(st, 1, { type: 'defend', target: 0, card: '10H' }), null);

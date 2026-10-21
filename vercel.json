@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "",
-  "buildCommand": "node tests/durak.test.js",
+  "buildCommand": "npm test",
   "outputDirectory": "."
 }
