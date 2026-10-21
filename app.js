@@ -307,6 +307,7 @@
     room.seats[0].name = myName();
     location.hash = c;
     broadcast();
+    startHostRelay();
     hostRetry = 0;
     openHostPeer();
   }
@@ -326,26 +327,41 @@
   // direct connections keep working, so we only re-register; tearing the peer
   // down would cut everyone off. The server can keep the old registration for
   // up to a minute, so "code taken" means wait and retry, never give up.
+  // A guest's connection, direct (PeerJS) or through the backup relay.
+  function acceptConn(c) {
+    c.on('open', () => conns.add(c));
+    c.on('data', (msg) => {
+      if (!room || !msg || typeof msg !== 'object') return;
+      if (msg.t === 'hello') {
+        if (typeof msg.token !== 'string' || !msg.token || msg.token.startsWith('bot-') || msg.token === room.host) return c.close();
+        handle(msg.token, msg, c);
+      } else if (c.token) handle(c.token, msg, c);
+    });
+    c.on('close', () => {
+      conns.delete(c);
+      if (!room) return;
+      if (c.token && ![...conns].some((o) => o.token === c.token)) dropToken(c.token);
+    });
+    c.on('error', () => {});
+  }
+
+  // The host also listens on the backup relay, for guests whose network
+  // can't make a direct connection (or when the PeerJS server is down).
+  let hostRelay = null;
+  async function startHostRelay() {
+    if (!window.Relay || !window.Relay.supported) return;
+    const mine = code;
+    const r = await window.Relay.host(code, acceptConn, () => { if (view && role === 'host') render(view); }).catch(() => null);
+    if (role !== 'host' || code !== mine) { if (r) r.close(); return; }
+    hostRelay = r;
+  }
+  const roomReachable = () => (peer && peer.open) || (hostRelay && hostRelay.up());
+
   function openHostPeer() {
     if (peer) peer.destroy();
     peer = new Peer(PEER_PREFIX + code, peerOptions());
     peer.on('open', () => { hostRetry = 0; setNetStatus(''); });
-    peer.on('connection', (c) => {
-      c.on('open', () => conns.add(c));
-      c.on('data', (msg) => {
-        if (!room || !msg || typeof msg !== 'object') return;
-        if (msg.t === 'hello') {
-          if (typeof msg.token !== 'string' || !msg.token || msg.token.startsWith('bot-') || msg.token === room.host) return c.close();
-          handle(msg.token, msg, c);
-        } else if (c.token) handle(c.token, msg, c);
-      });
-      c.on('close', () => {
-        conns.delete(c);
-        if (!room) return;
-        if (c.token && ![...conns].some((o) => o.token === c.token)) dropToken(c.token);
-      });
-      c.on('error', () => {});
-    });
+    peer.on('connection', acceptConn);
     const me = peer;
     peer.on('disconnected', () => {
       if (me !== peer || me.destroyed) return;
@@ -386,6 +402,9 @@
     code = c;
     location.hash = c;
     showConnecting('conn.joining');
+    // If the direct link isn't up in a few seconds, try the backup relay too.
+    // (Rejoins after server errors must not keep pushing this back.)
+    if (!relayTimer && !relayTrying) relayTimer = setTimeout(startRelay, 6000);
     if (peer) peer.destroy();
     peer = new Peer(peerOptions());
     // 'open' also fires after re-registering with the server; a working link
@@ -422,13 +441,14 @@
   function retryLater(ms, newPeer) {
     clearTimeout(retryTimer);
     retryTimer = setTimeout(() => {
-      if (role !== 'guest') return;
+      if (role !== 'guest' || (conn && conn.open)) return;
       if (newPeer || !peer || peer.destroyed) joinRoom(code);
       else connectToHost();
     }, ms);
   }
 
   function connectToHost() {
+    if (conn && conn.open) return; // e.g. already playing through the relay
     if (conn) conn.close();
     const c = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
     conn = c;
@@ -436,7 +456,7 @@
     // connection can take a while to set up, so be patient.
     const guard = setTimeout(() => {
       if (c === conn && !c.open) {
-        if (!joinedOnce) showConnecting(ownRelay.length ? 'conn.cantReach' : 'conn.iceFailed', true);
+        startRelay();
         retryLater(500);
       }
     }, 30000);
@@ -445,15 +465,51 @@
       const was = lastIce;
       lastIce = state;
       // checking -> disconnected/failed before ever opening: the two networks
-      // couldn't find a way to each other, not even through a relay.
-      if (!c.open && !joinedOnce && (state === 'failed' || (state === 'disconnected' && was === 'checking'))) showConnecting('conn.iceFailed', true);
-      else refreshDiag();
+      // can't reach each other directly. Go through the backup relay.
+      if (!c.open && (state === 'failed' || (state === 'disconnected' && was === 'checking'))) {
+        if (!joinedOnce) showConnecting('conn.viaRelay');
+        startRelay();
+      } else refreshDiag();
     });
     c.on('open', () => {
       clearTimeout(guard);
       retries = 0;
       c.send({ t: 'hello', name: myName(), token: myToken });
     });
+    wireGuestConn(c);
+  }
+
+  let relayTimer = 0;
+  let relayTrying = false;
+  async function startRelay() {
+    clearTimeout(relayTimer);
+    relayTimer = 0;
+    if (role !== 'guest' || relayTrying || (conn && conn.open) || !window.Relay || !window.Relay.supported) return;
+    relayTrying = true;
+    refreshDiag();
+    const mine = code;
+    const rc = await window.Relay.join(code).catch(() => null);
+    relayTrying = false;
+    if (role !== 'guest' || code !== mine) { if (rc) rc.close(); return; }
+    if (!rc) {
+      // No broker could reach the host either. Say so, and keep trying both ways.
+      if (!(conn && conn.open)) {
+        if (!joinedOnce && lastIce && lastIce !== 'checking' && lastIce !== 'new') showConnecting('conn.iceFailed', true);
+        relayTimer = setTimeout(startRelay, 5000);
+      }
+      return;
+    }
+    if (conn && conn.open) { rc.close(); return; } // the direct link won meanwhile
+    const old = conn;
+    conn = rc;
+    if (old) old.close();
+    clearTimeout(retryTimer);
+    retries = 0;
+    wireGuestConn(rc);
+    rc.send({ t: 'hello', name: myName(), token: myToken });
+  }
+
+  function wireGuestConn(c) {
     c.on('data', (msg) => {
       if (c !== conn || !msg) return;
       if (msg.t === 'state') {
@@ -467,6 +523,8 @@
       if (c !== conn || role !== 'guest') return;
       setNetStatus('net.lost');
       retryLater(2000);
+      clearTimeout(relayTimer);
+      relayTimer = setTimeout(startRelay, c.relay ? 2000 : 6000);
     });
     c.on('error', (e) => { if (c === conn) { lastError = (e && e.type) || 'connection'; refreshDiag(); } });
   }
@@ -502,7 +560,8 @@
   function refreshDiag() {
     if (!connKey) return;
     const server = peer && peer.open ? '✓' : '…';
-    $('#connDetail').textContent = t('conn.diag', { server, link: lastIce || '…', relay: ownRelay.length ? t('conn.relayOwn') : t('conn.relayShared') }) +
+    const link = conn && conn.relay ? t('conn.relayLink') : relayTrying ? (lastIce || '…') + ' · ' + t('conn.relayTrying') : lastIce || '…';
+    $('#connDetail').textContent = t('conn.diag', { server, link, relay: ownRelay.length ? t('conn.relayOwn') : t('conn.relayShared') }) +
       (lastError ? ' · ' + t('conn.error', { err: lastError }) : '');
   }
 
@@ -527,6 +586,9 @@
     lastError = '';
     lastIce = '';
     clearTimeout(hostRetryTimer);
+    clearTimeout(relayTimer);
+    relayTimer = 0;
+    if (hostRelay) { hostRelay.close(); hostRelay = null; }
     joinedOnce = false;
     retries = 0;
     history.replaceState(null, '', location.pathname + location.search);
@@ -550,9 +612,16 @@
     // old connection closes. (Waiting before going home let a link opened in
     // that moment be thrown back to the home screen.)
     const old = peer;
+    const oldRelay = hostRelay;
+    const oldConn = conn;
     peer = null;
+    hostRelay = null;
     goHome();
-    if (old) setTimeout(() => old.destroy(), 400);
+    setTimeout(() => {
+      if (old) old.destroy();
+      if (oldRelay) oldRelay.close();
+      if (oldConn && oldConn.relay) oldConn.close();
+    }, 400);
   }
 
   function shareLink() {
@@ -619,7 +688,7 @@
     $('#startBtn').disabled = v.seats.length < v.min;
     $('#gameSettings').replaceChildren(G.settings(v, ctx));
     // The host sees whether friends can join yet; guests only see trouble.
-    const open = role === 'host' && peer && peer.open;
+    const open = role === 'host' && roomReachable();
     const line = role === 'host'
       ? (open ? t('net.roomOpen') : t(netStatus || 'net.roomOpening') + (lastError ? ' · ' + t('conn.error', { err: lastError }) : ''))
       : (netStatus ? t(netStatus) : '');
